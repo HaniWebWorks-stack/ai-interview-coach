@@ -4,6 +4,21 @@ A real-time, voice-first interview coach with a lip-synced 3D interviewer. Talk 
 interrupt it at any time, prepare topic by topic with live visual explanations, then sit a timed
 15-minute mock interview and get a detailed, evidence-based evaluation report.
 
+![Live session: the coach explains with a mind map while the 3D interviewer talks](docs/screenshots/live-session-visual.png)
+
+| Live session with the 3D interviewer | Preparation Studio |
+|---|---|
+| ![Live session](docs/screenshots/live-session.png) | ![Preparation Studio](docs/screenshots/studio-create.png) |
+
+<details>
+<summary><b>Progress analytics (full page)</b></summary>
+
+![Progress page](docs/screenshots/progress.png)
+
+</details>
+
+<sub>Screenshots from real practice sessions.</sub>
+
 
 ## Highlights
 
