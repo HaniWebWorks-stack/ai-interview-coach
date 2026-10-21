@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choose Avatar</title>
+<style>
+  :root { --bg:#f6f5f2; --panel:#fff; --ink:#1d2129; --muted:#6a707c; --line:#e3e1dc;
+          --accent:#1f5f4a; --accent-ink:#fff; --ok:#1f7a4d; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --panel:#1c1f25; --ink:#eceae6; --muted:#9aa0aa; --line:#2c3038;
+            --accent:#5fb592; --accent-ink:#0d1411; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .bar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-bottom:16px; }
+  select, button { font:inherit; border-radius:8px; padding:8px 12px; border:1px solid var(--line); background:var(--panel); color:var(--ink); }
+  button.primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); cursor:pointer; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; display:flex; flex-direction:column; }
+  .card .media { aspect-ratio: 4/3; background:#0e1013; display:grid; place-items:center; color:#9aa0aa; font-size:13px; }
+  .card img, .card video { width:100%; height:100%; object-fit:cover; display:block; }
+  .card .body { padding:10px 12px 12px; display:flex; flex-direction:column; gap:8px; flex:1; }
+  .name { font-weight:600; }
+  .tag { font-size:12px; color:var(--muted); }
+  .msg { margin: 0 0 16px; min-height: 1.5em; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Choose the interviewer</h1>
+  <p class="sub">Pick an avatar and a matching voice. Only <b>Wayne</b> works in free test mode (about 1 minute,
+    no credits). Every other avatar uses LiveAvatar free-plan credits: 1 per minute, <span id="credits">…</span> left this month.</p>
+  <div class="bar">
+    <label>Voice:
+      <select id="voice">
+        <optgroup label="Female">
+          <option value="Kore" selected>Kore (female)</option>
+          <option value="Aoede">Aoede (female)</option>
+          <option value="Leda">Leda (female)</option>
+        </optgroup>
+        <optgroup label="Male">
+          <option value="Charon">Charon (male)</option>
+          <option value="Puck">Puck (male)</option>
+          <option value="Orus">Orus (male)</option>
+        </optgroup>
+      </select>
+    </label>
+    <a href="/">← Back to the test page</a>
+  </div>
+  <p class="msg" id="msg" role="status"></p>
+  <div class="grid" id="grid"><p>Loading avatars…</p></div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  function media(url) {
+    if (!url) return '<span>No preview</span>';
+    const safe = encodeURI(url);
+    return /\.(mp4|webm|mov)(\?|$)/i.test(url)
+      ? `<video src="${safe}" muted loop playsinline preload="metadata" onmouseover="this.play()" onmouseout="this.pause()"></video>`
+      : `<img src="${safe}" alt="" loading="lazy">`;
+  }
+  async function choose(a) {
+    const voice = $("voice").value;
+    $("msg").className = "msg"; $("msg").textContent = "Saving…";
+    const res = await fetch("/api/avatar", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: a.id, name: a.name, voice }) });
+    const data = await res.json();
+    if (!res.ok) { $("msg").className = "msg bad"; $("msg").textContent = "Could not save: " + (data.error || res.status); return; }
+    $("msg").className = "msg ok";
+    $("msg").innerHTML = `Saved: <b>${a.name.replace(/</g, "&lt;")}</b> with voice <b>${voice}</b>. ` +
+      `It will be used from the next session. <a href="/">Go to the test page</a>`;
+  }
+  async function load() {
+    try {
+      const st = await (await fetch("/api/status")).json();
+      $("credits").textContent = st.credits_left == null ? "unknown" : Number(st.credits_left).toFixed(1);
+      const res = await fetch("/api/avatars");
+      if (!res.ok) throw new Error("server answered " + res.status);
+      const { avatars } = await res.json();
+      const grid = $("grid"); grid.innerHTML = "";
+      avatars.sort((x, y) => (y.sandbox - x.sandbox) || x.name.localeCompare(y.name));
+      for (const a of avatars) {
+        const card = document.createElement("div"); card.className = "card";
+        card.innerHTML = `<div class="media">${media(a.preview_url)}</div>
+          <div class="body"><div class="name"></div>
+          <div class="tag">${a.sandbox ? "Free test avatar (1 min)" : "Uses credits"}${a.is_1080p ? " · 1080p" : ""}</div>
+          <button class="primary">Use this avatar</button></div>`;
+        card.querySelector(".name").textContent = a.name;
+        card.querySelector("button").addEventListener("click", () => choose(a));
+        grid.appendChild(card);
+      }
+      if (!avatars.length) grid.innerHTML = "<p>No avatars returned by LiveAvatar.</p>";
+    } catch (e) {
+      $("grid").innerHTML = `<p class="bad">Could not load avatars: ${String(e.message || e)}</p>`;
+    }
+  }
+  load();
+</script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+# Secret keys - never upload
+.env
+.env.*
+!.env.example
+agent.env
+*.key
+
+# Personal data (saved interviews, resumes, analyses)
+*.db
+*.sqlite
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Node / frontend build output (rebuild with: cd frontend && npm install && npm run build)
+node_modules/
+dist/
+viewer/app/
+
+# 3D avatar model: free for non-commercial use only, not redistributed here.
+# See README "3D avatar model" to add it locally.
+frontend/public/avatar3d/avaturn.glb
+
+# Local machine reports and logs (may contain transcripts)
+environment-report.txt
+setup-log.txt
+key-check-log.txt
+logs/
+livekit-check-log.txt
+liveavatar-check-log.txt
+*.log

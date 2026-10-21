@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interview Coach — Avatar Test</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d2129; --muted: #6a707c;
+    --line: #e3e1dc; --accent: #1f5f4a; --accent-ink: #ffffff;
+    --ok: #1f7a4d; --warn: #a86a00; --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14161a; --panel: #1c1f25; --ink: #eceae6; --muted: #9aa0aa;
+            --line: #2c3038; --accent: #5fb592; --accent-ink: #0d1411; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .layout { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  @media (min-width: 820px) { .layout { grid-template-columns: 1.6fr 1fr; } }
+  .stage { position: relative; aspect-ratio: 16 / 9; background: #0e1013; border-radius: 12px;
+           overflow: hidden; display: grid; place-items: center; }
+  .stage video { width: 100%; height: 100%; object-fit: cover; }
+  .placeholder { color: #9aa0aa; text-align: center; padding: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .status { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; }
+  .status dt { color: var(--muted); }
+  .status dd { margin: 0; font-weight: 500; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  button { font: inherit; border-radius: 8px; padding: 10px 16px; border: 1px solid var(--line);
+           background: var(--panel); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .captions { margin-top: 16px; max-height: 260px; overflow-y: auto; border-top: 1px solid var(--line); padding-top: 12px; }
+  .line { margin: 0 0 8px; }
+  .who { font-weight: 600; margin-right: 6px; }
+  .note { color: var(--muted); font-size: 13px; margin-top: 16px; }
+  .error { color: var(--bad); margin-top: 12px; white-space: pre-wrap; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>AI Interview Coach — avatar test</h1>
+  <p class="sub">Prototype P2: real-time voice, lip-synced avatar, and interruption.</p>
+
+  <div class="layout">
+    <div class="stage" id="stage">
+      <div class="placeholder" id="placeholder">The avatar appears here after you press <b>Start</b>.</div>
+    </div>
+
+    <div class="panel">
+      <dl class="status">
+        <dt>Connection</dt><dd id="s-conn">Not connected</dd>
+        <dt>Microphone</dt><dd id="s-mic">Off</dd>
+        <dt>Avatar</dt><dd id="s-avatar">Not joined</dd>
+        <dt>Coach</dt><dd id="s-agent">—</dd>
+        <dt>Avatar choice</dt><dd id="s-choice">…</dd>
+        <dt>Time left</dt><dd id="s-time">—</dd>
+      </dl>
+      <div class="controls">
+        <button class="primary" id="btn-start">Start</button>
+        <button id="btn-stop" disabled>End</button>
+        <button id="btn-audio" hidden>Enable sound</button>
+      </div>
+      <div class="error" id="error" role="alert"></div>
+      <div class="captions" id="captions" aria-live="polite"></div>
+      <p class="note" id="note-mode">…</p>
+      <p class="note"><a href="/avatars">Choose a different avatar or voice</a> ·
+        Your browser will ask for microphone permission — choose <b>Allow</b>.</p>
+    </div>
+  </div>
+</main>
+
+<script src="/static/livekit-client-2.22.3.umd.js"></script>
+<script>
+  const { Room, RoomEvent, Track, ConnectionState } = LivekitClient;
+  const AVATAR_IDENTITY = "liveavatar-avatar-agent";
+  const $ = (id) => document.getElementById(id);
+  let room = null;
+  const segments = new Map();
+  // Credit protection: sessions with a non-test avatar end automatically.
+  const PAID_AVATAR_LIMIT_SECONDS = 180;
+  let sandbox = true, countdown = null;
+  // Only one session across browser tabs: a new Start ends the others.
+  const channel = new BroadcastChannel("interview-coach-session");
+  channel.onmessage = async (ev) => {
+    if (ev.data === "new-session" && room) {
+      showError("This session was ended because a new one started in another tab.");
+      await room.disconnect();
+    }
+  };
+
+  async function loadStatus() {
+    try {
+      const s = await (await fetch("/api/status")).json();
+      sandbox = !!s.sandbox;
+      const credits = s.credits_left == null ? "unknown" : Number(s.credits_left).toFixed(1);
+      $("s-choice").textContent = `${s.avatar_name} · voice ${s.voice}`;
+      $("note-mode").textContent = sandbox
+        ? "Free test avatar: each session ends after about 1 minute. No credits used."
+        : `This avatar uses free-plan credits (1 per minute; ${credits} left this month). ` +
+          `To protect them, each session ends automatically after ${PAID_AVATAR_LIMIT_SECONDS / 60} minutes.`;
+    } catch (e) { $("s-choice").textContent = "unknown"; }
+  }
+
+  function startCountdown() {
+    stopCountdown();
+    let left = sandbox ? 60 : PAID_AVATAR_LIMIT_SECONDS;
+    const tick = async () => {
+      const m = Math.floor(left / 60), s = String(left % 60).padStart(2, "0");
+      setStatus("s-time", `${m}:${s}${sandbox ? " (approx.)" : ""}`, left <= 20 ? "warn" : "");
+      if (left <= 0) {
+        stopCountdown();
+        if (!sandbox && room) { showError("Session ended automatically to save credits."); await room.disconnect(); }
+        return;
+      }
+      left -= 1;
+    };
+    tick(); countdown = setInterval(tick, 1000);
+  }
+  function stopCountdown() { if (countdown) clearInterval(countdown); countdown = null; setStatus("s-time", "—"); }
+
+  function setStatus(id, text, cls = "") { const el = $(id); el.textContent = text; el.className = cls; }
+  function showError(msg) { $("error").textContent = msg || ""; }
+
+  function addCaption(segmentId, who, text) {
+    let el = segments.get(segmentId);
+    if (!el) {
+      el = document.createElement("p"); el.className = "line";
+      el.innerHTML = '<span class="who"></span><span class="txt"></span>';
+      el.querySelector(".who").textContent = who + ":";
+      $("captions").appendChild(el); segments.set(segmentId, el);
+    }
+    el.querySelector(".txt").textContent = text;
+    $("captions").scrollTop = $("captions").scrollHeight;
+  }
+
+  function resetUi() {
+    setStatus("s-conn", "Not connected"); setStatus("s-mic", "Off");
+    setStatus("s-avatar", "Not joined"); setStatus("s-agent", "—");
+    $("stage").querySelectorAll("video").forEach((v) => v.remove());
+    $("placeholder").hidden = false;
+    $("btn-start").disabled = false; $("btn-stop").disabled = true; $("btn-audio").hidden = true;
+    stopCountdown(); loadStatus();
+  }
+
+  async function start() {
+    showError(""); $("btn-start").disabled = true;
+    channel.postMessage("new-session");
+    $("captions").innerHTML = ""; segments.clear();
+    setStatus("s-conn", "Connecting…", "warn");
+    try {
+      const res = await fetch("/api/token", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || ("Server error " + res.status));
+
+      room = new Room({
+        adaptiveStream: true, dynacast: true,
+        audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      wire(room);
+      await room.connect(data.url, data.token);
+      await room.localParticipant.setMicrophoneEnabled(true);
+      setStatus("s-mic", "On — listening", "ok");
+      await room.startAudio();
+      $("btn-stop").disabled = false;
+    } catch (e) {
+      showError("Could not start: " + (e && e.message ? e.message : e));
+      if (room) await room.disconnect();
+      resetUi();
+    }
+  }
+
+  function wire(r) {
+    r.on(RoomEvent.ConnectionStateChanged, (state) => {
+      const map = { connected: ["Connected", "ok"], connecting: ["Connecting…", "warn"],
+                    reconnecting: ["Reconnecting…", "warn"], disconnected: ["Not connected", ""] };
+      const [t, c] = map[state] || [state, ""]; setStatus("s-conn", t, c);
+    });
+    r.on(RoomEvent.Disconnected, () => { resetUi(); room = null; });
+    r.on(RoomEvent.MediaDevicesError, (e) => {
+      setStatus("s-mic", "Blocked", "bad");
+      showError("Microphone problem: " + e.message + "\nAllow microphone access in the browser and try again.");
+    });
+    r.on(RoomEvent.AudioPlaybackStatusChanged, () => { $("btn-audio").hidden = r.canPlaybackAudio; });
+    r.on(RoomEvent.ParticipantConnected, (p) => {
+      if (p.identity === AVATAR_IDENTITY) setStatus("s-avatar", "Joined — loading video…", "warn");
+    });
+    r.on(RoomEvent.ParticipantDisconnected, (p) => {
+      if (p.identity === AVATAR_IDENTITY) setStatus("s-avatar", "Left (free test minute ended?)", "warn");
+    });
+    r.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+      const el = track.attach();
+      if (track.kind === Track.Kind.Video) {
+        $("placeholder").hidden = true; $("stage").appendChild(el);
+        if (participant.identity === AVATAR_IDENTITY) { setStatus("s-avatar", "On screen", "ok"); startCountdown(); }
+      } else if (track.kind === Track.Kind.Audio) {
+        el.hidden = true; document.body.appendChild(el);
+      }
+    });
+    r.on(RoomEvent.TrackUnsubscribed, (track) => { track.detach().forEach((el) => el.remove()); });
+    r.on(RoomEvent.ParticipantAttributesChanged, (changed, participant) => {
+      const state = changed["lk.agent.state"];
+      if (state && participant.identity !== AVATAR_IDENTITY) {
+        const labels = { initializing: "Starting…", listening: "Listening", thinking: "Thinking",
+                         speaking: "Speaking", idle: "Idle" };
+        setStatus("s-agent", labels[state] || state, state === "speaking" ? "ok" : "");
+      }
+    });
+    r.registerTextStreamHandler("lk.transcription", async (reader) => {
+      const attrs = reader.info.attributes || {};
+      const micSid = r.localParticipant.getTrackPublication(Track.Source.Microphone)?.trackSid;
+      const who = attrs["lk.transcribed_track_id"] && attrs["lk.transcribed_track_id"] === micSid ? "You" : "Coach";
+      const segId = attrs["lk.segment_id"] || reader.info.id;
+      let text = "";
+      for await (const chunk of reader) { text += chunk; addCaption(segId, who, text); }
+    });
+  }
+
+  loadStatus();
+  $("btn-start").addEventListener("click", start);
+  $("btn-stop").addEventListener("click", async () => { if (room) await room.disconnect(); });
+  $("btn-audio").addEventListener("click", async () => { if (room) await room.startAudio(); });
+</script>
+</body>
+</html>

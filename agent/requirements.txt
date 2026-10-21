@@ -1,0 +1,6 @@
+# Python packages for the voice + avatar agent.
+# Versions pinned to what was checked for Windows + Python 3.14 on 2026-10-09.
+# google = Gemini Live (free tier, used for development)
+# openai = OpenAI Realtime (paid, optional later)
+livekit-agents[google,openai,liveavatar]==1.8.5
+python-dotenv==1.2.4
