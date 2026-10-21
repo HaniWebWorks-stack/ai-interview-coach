@@ -170,7 +170,7 @@ viewer/app/              built web app (generated, not committed)
 
 ## License
 
-Code released under the [MIT License](LICENSE). Third-party components keep their own licences.
+Code released under the [MIT License](LICENSE). Third-party components keep their own licences, and the 3D avatar model is not included or covered by it.
 
 ## Credits
 
